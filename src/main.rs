@@ -187,6 +187,13 @@ fn main() {
                 println!("Playing: {}", uri);
 
                 player.set_property("uri", &uri);
+                // Stop current playback
+                player.set_state(gst::State::Null).unwrap();
+
+                // Set new song URI
+                player.set_property("uri", &uri);
+
+                // Start playback
                 player.set_state(gst::State::Playing).unwrap();
             }
         });

@@ -40,9 +40,11 @@ fn main() {
 
         // Play and Open Folder buttons
         let play_button = Button::with_label("Play");
+        let pause_button = Button::with_label("Pause");
         let open_button = Button::with_label("Open Folder");
 
         header.pack_start(&play_button);
+        header.pack_start(&pause_button);
         header.pack_end(&open_button);
         vbox.append(&header);
 
@@ -62,6 +64,7 @@ fn main() {
         // Playlist storage: Vec<PathBuf>
         // ----------------------------
         let playlist_paths: Rc<RefCell<Vec<PathBuf>>> = Rc::new(RefCell::new(Vec::new()));
+        let is_playing = Rc::new(RefCell::new(false));
 
         // ----------------------------
         // GStreamer player
@@ -146,6 +149,8 @@ fn main() {
         let playlist_box_clone2 = playlist_box.clone();
         let playlist_paths_clone2 = playlist_paths.clone();
         let player_clone = player.clone();
+        let is_playing_clone = is_playing.clone();
+        let pause_button_clone = pause_button.clone();
 
         play_button.connect_clicked(move |_| {
             // Get selected row or first row
@@ -164,8 +169,12 @@ fn main() {
                 if let Some(song_path) = playlist_paths_clone2.borrow().get(index as usize) {
                     let uri = format!("file://{}", song_path.display());
                     println!("Playing: {}", uri);
+                    player_clone.set_state(gst::State::Null).unwrap();
                     player_clone.set_property("uri", &uri); // returns ()
                     player_clone.set_state(gst::State::Playing).unwrap(); // .unwrap() still needed here
+
+                    *is_playing_clone.borrow_mut() = true;
+                    pause_button_clone.set_label("Pause");
                 }
             }
         });
@@ -175,6 +184,8 @@ fn main() {
         // ----------------------------
         let playlist_paths_clone3 = playlist_paths.clone();
         let player_clone2 = player.clone();
+        let is_playing_clone2 = is_playing.clone();
+        let pause_button_clone2 = pause_button.clone();
 
         playlist_box.connect_row_activated(move |_, row| {
             let playlist_paths = playlist_paths_clone3.clone();
@@ -195,6 +206,33 @@ fn main() {
 
                 // Start playback
                 player.set_state(gst::State::Playing).unwrap();
+
+                *is_playing_clone2.borrow_mut() = true;
+                pause_button_clone2.set_label("Pause");
+            }
+        });
+
+        // ----------------------------
+        // Pause / Resume button logic
+        // ----------------------------
+        let player_clone_for_pause = player.clone();
+        let is_playing_clone3 = is_playing.clone();
+        let pause_button_clone3 = pause_button.clone();
+
+        pause_button.connect_clicked(move |_| {
+            let mut playing = is_playing_clone3.borrow_mut();
+            if *playing {
+                player_clone_for_pause
+                    .set_state(gst::State::Paused)
+                    .unwrap();
+                *playing = false;
+                pause_button_clone3.set_label("Resume");
+            } else {
+                player_clone_for_pause
+                    .set_state(gst::State::Playing)
+                    .unwrap();
+                *playing = true;
+                pause_button_clone3.set_label("Pause");
             }
         });
 

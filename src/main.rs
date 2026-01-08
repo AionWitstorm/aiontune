@@ -1,12 +1,21 @@
+use gstreamer as gst;
+use gstreamer::prelude::*; // brings in set_state, set_property, etc.
 use gtk4::prelude::*;
 use gtk4::{
     Application, ApplicationWindow, Box as GtkBox, Button, FileChooserDialog, HeaderBar, Label,
-    ListBox, Orientation, ResponseType,
+    ListBox, ListBoxRow, Orientation, ResponseType,
 };
+use std::cell::RefCell;
 use std::fs;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 fn main() {
+    // Initialize GTK
+    gtk4::init().expect("Failed to initialize GTK");
+    // Initialize GStreamer
+    gst::init().expect("Failed to initialize GStreamer");
+
     let app = Application::builder()
         .application_id("com.aion.aiontune")
         .build();
@@ -20,29 +29,24 @@ fn main() {
             .default_height(500)
             .build();
 
-        // Create vertical layout box
+        // Vertical layout
         let vbox = GtkBox::new(Orientation::Vertical, 5);
 
-        // Create HeaderBar
+        // HeaderBar
         let header = HeaderBar::builder()
             .title_widget(&Label::new(Some("AionTune")))
             .show_title_buttons(true)
             .build();
 
-        // Create Play button
+        // Play and Open Folder buttons
         let play_button = Button::with_label("Play");
-
-        // Create Open Folder button
         let open_button = Button::with_label("Open Folder");
 
-        // Add buttons to header
-        header.pack_start(&play_button); // left side
-        header.pack_end(&open_button); // right side
-
-        // Add header to main box
+        header.pack_start(&play_button);
+        header.pack_end(&open_button);
         vbox.append(&header);
 
-        // Create playlist ListBox
+        // Playlist ListBox
         let playlist_box = ListBox::new();
         vbox.append(&playlist_box);
 
@@ -50,10 +54,30 @@ fn main() {
         window.set_child(Some(&vbox));
 
         // ----------------------------
+        // Shared state: playlist folder path
+        // ----------------------------
+        let current_folder: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
+
+        // ----------------------------
+        // Playlist storage: Vec<PathBuf>
+        // ----------------------------
+        let playlist_paths: Rc<RefCell<Vec<PathBuf>>> = Rc::new(RefCell::new(Vec::new()));
+
+        // ----------------------------
+        // GStreamer player
+        // ----------------------------
+        let player = gst::ElementFactory::make("playbin")
+            .build()
+            .expect("Failed to create playbin element");
+
+        // ----------------------------
         // Open Folder button logic
         // ----------------------------
         let window_clone = window.clone();
         let playlist_box_clone = playlist_box.clone();
+        let current_folder_clone = current_folder.clone();
+        let playlist_paths_clone = playlist_paths.clone();
+
         open_button.connect_clicked(move |_| {
             let dialog = FileChooserDialog::new(
                 Some("Select Music Folder"),
@@ -65,18 +89,26 @@ fn main() {
                 ],
             );
 
-            let playlist_box_clone_inner = playlist_box_clone.clone();
+            let playlist_box_inner = playlist_box_clone.clone();
+            let current_folder_inner = current_folder_clone.clone();
+            let playlist_paths_inner = playlist_paths_clone.clone();
+
             dialog.connect_response(move |dialog, response| {
-                let playlist_box_clone = playlist_box_clone_inner.clone(); // clone for this closure
                 if response == ResponseType::Accept {
                     if let Some(folder) = dialog.file() {
                         if let Some(folder_path) = folder.path() {
                             println!("Selected folder: {:?}", folder_path);
 
-                            // Clear previous playlist
-                            while let Some(row) = playlist_box_clone.first_child() {
-                                playlist_box_clone.remove(&row);
+                            // Update shared folder
+                            *current_folder_inner.borrow_mut() = Some(folder_path.clone());
+
+                            // Clear previous playlist UI
+                            while let Some(row) = playlist_box_inner.first_child() {
+                                playlist_box_inner.remove(&row);
                             }
+
+                            // Clear previous paths
+                            playlist_paths_inner.borrow_mut().clear();
 
                             // Scan folder for audio files
                             if let Ok(entries) = fs::read_dir(&folder_path) {
@@ -86,10 +118,15 @@ fn main() {
                                         if ["mp3", "flac", "wav", "ogg"].contains(&ext) {
                                             let filename =
                                                 path.file_name().unwrap().to_string_lossy();
-                                            let row = gtk4::ListBoxRow::new();
-                                            let label = gtk4::Label::new(Some(&filename));
+
+                                            // Add to playlist UI
+                                            let row = ListBoxRow::new();
+                                            let label = Label::new(Some(&filename));
                                             row.set_child(Some(&label));
-                                            playlist_box_clone.append(&row);
+                                            playlist_box_inner.append(&row);
+
+                                            // Add to playlist paths
+                                            playlist_paths_inner.borrow_mut().push(path);
                                         }
                                     }
                                 }
@@ -101,6 +138,57 @@ fn main() {
             });
 
             dialog.show();
+        });
+
+        // ----------------------------
+        // Play button logic: play first song or selected song
+        // ----------------------------
+        let playlist_box_clone2 = playlist_box.clone();
+        let playlist_paths_clone2 = playlist_paths.clone();
+        let player_clone = player.clone();
+
+        play_button.connect_clicked(move |_| {
+            // Get selected row or first row
+            let selected_row = playlist_box_clone2
+                .selected_row()
+                .and_then(|w| w.downcast::<gtk4::ListBoxRow>().ok())
+                .or_else(|| {
+                    playlist_box_clone2
+                        .first_child()
+                        .and_then(|w| w.downcast::<gtk4::ListBoxRow>().ok())
+                });
+
+            if let Some(row) = selected_row {
+                let index = row.index(); // index is i32
+
+                if let Some(song_path) = playlist_paths_clone2.borrow().get(index as usize) {
+                    let uri = format!("file://{}", song_path.display());
+                    println!("Playing: {}", uri);
+                    player_clone.set_property("uri", &uri); // returns ()
+                    player_clone.set_state(gst::State::Playing).unwrap(); // .unwrap() still needed here
+                }
+            }
+        });
+
+        // ----------------------------
+        // Playlist click logic: play clicked song
+        // ----------------------------
+        let playlist_paths_clone3 = playlist_paths.clone();
+        let player_clone2 = player.clone();
+
+        playlist_box.connect_row_activated(move |_, row| {
+            let playlist_paths = playlist_paths_clone3.clone();
+            let player = player_clone2.clone();
+
+            let index = row.index() as usize;
+
+            if let Some(song_path) = playlist_paths.borrow().get(index) {
+                let uri = format!("file://{}", song_path.display());
+                println!("Playing: {}", uri);
+
+                player.set_property("uri", &uri);
+                player.set_state(gst::State::Playing).unwrap();
+            }
         });
 
         // Show window

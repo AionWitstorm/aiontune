@@ -1,5 +1,8 @@
 use gtk4::prelude::*;
-use gtk4::{Application, ApplicationWindow, HeaderBar, Button, Box as GtkBox, Orientation, Label, FileChooserDialog, ResponseType};
+use gtk4::{
+    Application, ApplicationWindow, Box as GtkBox, Button, FileChooserDialog, HeaderBar, Label,
+    Orientation, ResponseType,
+};
 
 fn main() {
     let app = Application::builder()
@@ -32,7 +35,7 @@ fn main() {
 
         // Add buttons to header
         header.pack_start(&play_button); // left side
-        header.pack_end(&open_button);   // right side
+        header.pack_end(&open_button); // right side
 
         // Add header to main box
         vbox.append(&header);
@@ -43,28 +46,30 @@ fn main() {
         // ----------------------------
         // Open Folder button logic
         // ----------------------------
-       let window_clone = window.clone();
-open_button.connect_clicked(move |_| {
-    let dialog = FileChooserDialog::new(
-        Some("Select Music Folder"),
-        Some(&window_clone),
-        gtk4::FileChooserAction::SelectFolder,
-        &[("Cancel", ResponseType::Cancel), ("Open", ResponseType::Accept)],
-    );
+        let window_clone = window.clone();
+        open_button.connect_clicked(move |_| {
+            let dialog = FileChooserDialog::new(
+                Some("Select Music Folder"),
+                Some(&window_clone),
+                gtk4::FileChooserAction::SelectFolder,
+                &[
+                    ("Cancel", ResponseType::Cancel),
+                    ("Open", ResponseType::Accept),
+                ],
+            );
 
-    dialog.connect_response(|dialog, response| {
-        if response == ResponseType::Accept {
-            if let Some(folder) = dialog.file() {
-                println!("Selected folder: {:?}", folder.path());
-                // TODO: Load music files from this folder
-            }
-        }
-        dialog.close();
-    });
+            dialog.connect_response(|dialog, response| {
+                if response == ResponseType::Accept {
+                    if let Some(folder) = dialog.file() {
+                        println!("Selected folder: {:?}", folder.path());
+                        // TODO: Load music files from this folder
+                    }
+                }
+                dialog.close();
+            });
 
-    dialog.show();
-});
-
+            dialog.show();
+        });
 
         // Show window
         window.present();

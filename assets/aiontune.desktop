@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=AionTune
+Comment=GTK4 Music Player
+Exec=aiontune
+Icon=aiontune
+Terminal=false
+Categories=Audio;Music;Player;
+StartupNotify=true
